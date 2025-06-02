@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -19,6 +18,7 @@ import {
   update,
   updateRoomActivity
 } from '../services/firebase';
+import { AudioStreamManager } from '../services/webrtc';
 
 interface Player {
   name: string;
@@ -63,6 +63,8 @@ interface RoomContextType {
   subtractPlayerPoints: (amount?: number) => Promise<void>;
   rejectAnswer: () => Promise<void>;
   submitAnswer: (answer: string) => Promise<void>;
+  audioStreamManager: AudioStreamManager | null;
+  setAudioStreamManager: (manager: AudioStreamManager | null) => void;
 }
 
 const RoomContext = createContext<RoomContextType | undefined>(undefined);
@@ -74,6 +76,7 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [roomData, setRoomData] = useState<RoomData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [audioStreamManager, setAudioStreamManager] = useState<AudioStreamManager | null>(null);
   
   const navigate = useNavigate();
 
@@ -140,6 +143,19 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     
     return () => clearInterval(interval);
   }, [roomCode, playerId]);
+
+  useEffect(() => {
+    if (roomCode && isHost) {
+      const manager = new AudioStreamManager(roomCode, true);
+      manager.initialize().catch(console.error);
+      setAudioStreamManager(manager);
+
+      return () => {
+        manager.stop();
+        setAudioStreamManager(null);
+      };
+    }
+  }, [roomCode, isHost]);
 
   const handleCreateRoom = async (name: string) => {
     try {
@@ -324,7 +340,9 @@ export const RoomProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     awardPoints,
     subtractPlayerPoints,
     rejectAnswer,
-    submitAnswer
+    submitAnswer,
+    audioStreamManager,
+    setAudioStreamManager,
   };
 
   return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;

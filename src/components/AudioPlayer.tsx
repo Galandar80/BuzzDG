@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRoom } from '../context/RoomContext';
 import { Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import { AudioStreamManager } from '../services/webrtc';
 
 interface AudioPlayerProps {
   onAudioPause?: () => void;
 }
 
 const AudioPlayer: React.FC<AudioPlayerProps> = ({ onAudioPause }) => {
-  const { isHost, roomData } = useRoom();
+  const { isHost, roomData, roomCode } = useRoom();
   const [leftFiles, setLeftFiles] = useState<File[]>([]);
   const [rightFiles, setRightFiles] = useState<File[]>([]);
   const [masterVolume, setMasterVolume] = useState(1);
@@ -18,9 +19,23 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ onAudioPause }) => {
   const [searchFilter, setSearchFilter] = useState({ left: '', right: '' });
   const [isMuted, setIsMuted] = useState(false);
   const [previousVolume, setPreviousVolume] = useState(1);
+  const [isRemotePlaying, setIsRemotePlaying] = useState(false);
 
   const leftTbodyRef = useRef<HTMLTableSectionElement>(null);
   const rightTbodyRef = useRef<HTMLTableSectionElement>(null);
+  const streamManagerRef = useRef<AudioStreamManager | null>(null);
+
+  // Inizializza WebRTC quando necessario
+  useEffect(() => {
+    if (roomCode && isHost) {
+      streamManagerRef.current = new AudioStreamManager(roomCode, true);
+      streamManagerRef.current.initialize().catch(console.error);
+
+      return () => {
+        streamManagerRef.current?.stop();
+      };
+    }
+  }, [roomCode, isHost]);
 
   // Funzione per fermare la riproduzione audio
   const stopAudioPlayback = () => {
@@ -59,6 +74,23 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ onAudioPause }) => {
     }
   }, [roomData?.winnerInfo]);
 
+  // Gestione stato riproduzione audio remoto per utenti non host
+  useEffect(() => {
+    if (!isHost) {
+      const remoteAudio = document.getElementById('remote-audio') as HTMLAudioElement | null;
+      if (remoteAudio) {
+        const handlePlay = () => setIsRemotePlaying(true);
+        const handlePause = () => setIsRemotePlaying(false);
+        remoteAudio.addEventListener('play', handlePlay);
+        remoteAudio.addEventListener('pause', handlePause);
+        return () => {
+          remoteAudio.removeEventListener('play', handlePlay);
+          remoteAudio.removeEventListener('pause', handlePause);
+        };
+      }
+    }
+  }, [isHost]);
+
   const handleFileSelect = (column: 'left' | 'right') => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -91,6 +123,19 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ onAudioPause }) => {
 
     const audio = new Audio(URL.createObjectURL(file));
     audio.volume = 0; // Inizia con volume 0 per il fade in
+    
+    // Cattura l'audio del sistema quando viene riprodotto
+    if (isHost && streamManagerRef.current) {
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaElementSource(audio);
+      const destination = audioContext.createMediaStreamDestination();
+      source.connect(destination);
+      source.connect(audioContext.destination);
+
+      // Invia lo stream audio attraverso WebRTC
+      const stream = destination.stream;
+      streamManagerRef.current.setAudioStream(stream);
+    }
     
     audio.onended = () => {
       if ((column === 'left' && loopMode.left) || (column === 'right' && loopMode.right)) {
@@ -153,7 +198,36 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ onAudioPause }) => {
     }
   };
 
-  if (!isHost) return null;
+  // Rendi il player visibile anche agli utenti non host, ma solo la barra fissa per loro
+  if (!isHost) {
+    return (
+      <>
+        {/* Barra di controllo fissa per utenti non host */}
+        <div className="fixed bottom-0 left-0 right-0 bg-black/80 backdrop-blur-md border-t border-white/20 p-4 z-50">
+          <div className="max-w-6xl mx-auto flex items-center justify-center gap-4">
+            {isRemotePlaying ? (
+              <div className="flex items-center gap-2 text-white">
+                <Play className="w-6 h-6 text-green-400 animate-pulse" />
+                <span>Audio in riproduzione dal padrone della stanza</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-white/60">
+                <Pause className="w-6 h-6" />
+                <span>Nessun audio in riproduzione</span>
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Audio element per lo stream remoto */}
+        <audio
+          id="remote-audio"
+          autoPlay
+          playsInline
+          className="hidden"
+        />
+      </>
+    );
+  }
 
   return (
     <>
@@ -374,6 +448,14 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ onAudioPause }) => {
           </div>
         </div>
       </div>
+
+      {/* Audio element per lo stream remoto */}
+      <audio
+        id="remote-audio"
+        autoPlay
+        playsInline
+        className="hidden"
+      />
     </>
   );
 };
