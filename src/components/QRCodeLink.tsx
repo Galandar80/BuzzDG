@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { QrCode } from 'lucide-react';
 
@@ -21,7 +20,7 @@ const QRCodeLink: React.FC<QRCodeLinkProps> = ({
         }`}
       >
         <img 
-          src="/lovable-uploads/c740f18a-4966-41c9-9368-fb5d1353b527.png" 
+          src="/images/qr-code.png" 
           alt="QR Code per Indovina la Canzone" 
           className="w-full h-full object-contain"
         />
